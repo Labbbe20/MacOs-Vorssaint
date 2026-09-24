@@ -25,6 +25,9 @@ env:
   TARGET_REPOSITORY: ${{ github.repository }}
   TARGET_BRANCH: main
   KEEPALIVE_DAYS: "45"
+  GH_API_RETRY_ATTEMPTS: "5"
+  GH_API_RETRY_DELAY_SECONDS: "30"
+  GH_RELEASE_THROTTLE_SECONDS: "5"
   RELEASE_MANIFEST: .github/upstream-sync/upstream-releases.json
   KEEPALIVE_MARKER: .github/upstream-sync/last-scheduled-run.txt
 
@@ -148,6 +151,46 @@ jobs:
           asset_upload_count=0
           asset_skip_count=0
 
+          run_with_retry() {
+            local attempt max_attempts delay output exit_code compact_output
+            max_attempts="${GH_API_RETRY_ATTEMPTS:-5}"
+            delay="${GH_API_RETRY_DELAY_SECONDS:-30}"
+            attempt=1
+
+            while true; do
+              set +e
+              output="$("$@" 2>&1)"
+              exit_code=$?
+              set -e
+
+              if [ "$exit_code" -eq 0 ]; then
+                printf '%s' "$output"
+                return 0
+              fi
+
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                printf '%s\n' "$output" >&2
+                return "$exit_code"
+              fi
+
+              if printf '%s' "$output" | grep -Eiq 'secondary rate|rate limit|abuse|Resource not accessible by integration'; then
+                compact_output="$(printf '%s' "$output" | tr '\n' ' ' | cut -c 1-300)"
+                echo "::warning::GitHub call failed; retrying in ${delay}s (attempt ${attempt}/${max_attempts}): ${compact_output}" >&2
+                sleep "$delay"
+                attempt=$((attempt + 1))
+                delay=$((delay * 2))
+                continue
+              fi
+
+              printf '%s\n' "$output" >&2
+              return "$exit_code"
+            done
+          }
+
+          cooldown_after_write() {
+            sleep "${GH_RELEASE_THROTTLE_SECONDS:-5}"
+          }
+
           while IFS= read -r encoded_release; do
             [ -n "$encoded_release" ] || continue
             release_count=$((release_count + 1))
@@ -179,13 +222,15 @@ jobs:
 
             if gh api "repos/${TARGET_REPOSITORY}/releases/tags/${tag}" > "$target_release_file" 2>/dev/null; then
               target_release_id="$(jq -r '.id' "$target_release_file")"
-              gh api --method PATCH "repos/${TARGET_REPOSITORY}/releases/${target_release_id}" \
+              run_with_retry gh api --method PATCH "repos/${TARGET_REPOSITORY}/releases/${target_release_id}" \
                 --input "$release_payload" >/dev/null
+              cooldown_after_write
               release_update_count=$((release_update_count + 1))
               echo "Updated release $tag."
             else
-              gh api --method POST "repos/${TARGET_REPOSITORY}/releases" \
+              run_with_retry gh api --method POST "repos/${TARGET_REPOSITORY}/releases" \
                 --input "$release_payload" > "$target_release_file"
+              cooldown_after_write
               release_create_count=$((release_create_count + 1))
               echo "Created release $tag."
             fi
@@ -229,7 +274,8 @@ jobs:
 
               if [ "$needs_upload" = "true" ]; then
                 if [ -n "$target_asset_id" ]; then
-                  gh api --method DELETE "repos/${TARGET_REPOSITORY}/releases/assets/${target_asset_id}" >/dev/null
+                  run_with_retry gh api --method DELETE "repos/${TARGET_REPOSITORY}/releases/assets/${target_asset_id}" >/dev/null
+                  cooldown_after_write
                 fi
 
                 asset_file="$asset_dir/$asset_name"
@@ -237,7 +283,8 @@ jobs:
                   "$asset_url" \
                   --output "$asset_file"
 
-                gh release upload "$tag" "$asset_file" --repo "$TARGET_REPOSITORY"
+                run_with_retry gh release upload "$tag" "$asset_file" --repo "$TARGET_REPOSITORY"
+                cooldown_after_write
                 asset_upload_count=$((asset_upload_count + 1))
                 echo "Uploaded asset $asset_name for $tag."
               else
