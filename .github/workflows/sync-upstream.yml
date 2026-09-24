@@ -217,7 +217,8 @@ jobs:
                 name: $name,
                 body: $body,
                 draft: false,
-                prerelease: $prerelease
+                prerelease: $prerelease,
+                make_latest: "false"
               }' > "$release_payload"
 
             if gh api "repos/${TARGET_REPOSITORY}/releases/tags/${tag}" > "$target_release_file" 2>/dev/null; then
