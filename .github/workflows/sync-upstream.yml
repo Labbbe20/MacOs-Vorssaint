@@ -222,11 +222,21 @@ jobs:
 
             if gh api "repos/${TARGET_REPOSITORY}/releases/tags/${tag}" > "$target_release_file" 2>/dev/null; then
               target_release_id="$(jq -r '.id' "$target_release_file")"
-              run_with_retry gh api --method PATCH "repos/${TARGET_REPOSITORY}/releases/${target_release_id}" \
-                --input "$release_payload" >/dev/null
-              cooldown_after_write
-              release_update_count=$((release_update_count + 1))
-              echo "Updated release $tag."
+              target_release_name="$(jq -r '.name // ""' "$target_release_file")"
+              target_release_body="$(jq -r '.body // ""' "$target_release_file")"
+              target_release_prerelease="$(jq -r '.prerelease' "$target_release_file")"
+
+              if [ "$target_release_name" = "$name" ] \
+                && [ "$target_release_body" = "$body" ] \
+                && [ "$target_release_prerelease" = "$prerelease" ]; then
+                echo "Release $tag metadata is already current."
+              else
+                run_with_retry gh api --method PATCH "repos/${TARGET_REPOSITORY}/releases/${target_release_id}" \
+                  --input "$release_payload" >/dev/null
+                cooldown_after_write
+                release_update_count=$((release_update_count + 1))
+                echo "Updated release $tag."
+              fi
             else
               run_with_retry gh api --method POST "repos/${TARGET_REPOSITORY}/releases" \
                 --input "$release_payload" > "$target_release_file"
@@ -251,6 +261,7 @@ jobs:
 
               target_asset_id="$(jq -r --arg name "$asset_name" '.assets[]? | select(.name == $name) | .id' "$target_release_file" | head -n 1)"
               target_asset_size="$(jq -r --arg name "$asset_name" '.assets[]? | select(.name == $name) | .size' "$target_release_file" | head -n 1)"
+              target_asset_digest="$(jq -r --arg name "$asset_name" '.assets[]? | select(.name == $name) | .digest // empty' "$target_release_file" | head -n 1)"
 
               old_asset_id=""
               old_asset_updated=""
@@ -268,7 +279,10 @@ jobs:
                 needs_upload=true
               elif [ "$target_asset_size" != "$asset_size" ]; then
                 needs_upload=true
-              elif [ "$old_asset_id" != "$asset_id" ] || [ "$old_asset_updated" != "$asset_updated" ] || [ "$old_asset_digest" != "$asset_digest" ]; then
+              elif [ -n "$asset_digest" ] && [ -n "$target_asset_digest" ] && [ "$target_asset_digest" != "$asset_digest" ]; then
+                needs_upload=true
+              elif [ -f "$old_manifest" ] \
+                && { [ "$old_asset_id" != "$asset_id" ] || [ "$old_asset_updated" != "$asset_updated" ] || [ "$old_asset_digest" != "$asset_digest" ]; }; then
                 needs_upload=true
               fi
 
