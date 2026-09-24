@@ -28,6 +28,7 @@ env:
   GH_API_RETRY_ATTEMPTS: "5"
   GH_API_RETRY_DELAY_SECONDS: "30"
   GH_RELEASE_THROTTLE_SECONDS: "5"
+  MIRRORED_RELEASE_COUNT: "3"
   RELEASE_MANIFEST: .github/upstream-sync/upstream-releases.json
   KEEPALIVE_MARKER: .github/upstream-sync/last-scheduled-run.txt
 
@@ -307,9 +308,9 @@ jobs:
                 echo "Asset $asset_name for $tag is already current."
               fi
             done < <(printf '%s' "$release_json" | jq -r '.assets[]? | @base64')
-          done < <(gh api --paginate "repos/${UPSTREAM_REPOSITORY}/releases?per_page=100" --jq '.[] | @base64')
+          done < <(gh api "repos/${UPSTREAM_REPOSITORY}/releases?per_page=${MIRRORED_RELEASE_COUNT}" --jq '.[] | @base64')
 
-          gh api --paginate "repos/${UPSTREAM_REPOSITORY}/releases?per_page=100" --jq '.[]' \
+          gh api "repos/${UPSTREAM_REPOSITORY}/releases?per_page=${MIRRORED_RELEASE_COUNT}" --jq '.[]' \
             | jq -s --arg upstream "$UPSTREAM_REPOSITORY" '{
                 upstream_repository: $upstream,
                 releases: map({
