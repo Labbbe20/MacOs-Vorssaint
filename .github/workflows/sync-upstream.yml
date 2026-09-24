@@ -367,7 +367,12 @@ jobs:
             exit 0
           fi
 
-          target_release_id="$(gh api "repos/${TARGET_REPOSITORY}/releases/tags/${latest_tag}" --jq '.id')"
+          target_release_id="$(gh api "repos/${TARGET_REPOSITORY}/releases/tags/${latest_tag}" --jq '.id' 2>/dev/null || true)"
+          if [ -z "$target_release_id" ]; then
+            echo "Upstream latest release $latest_tag is not in the mirrored release window."
+            exit 0
+          fi
+
           latest_payload="$(mktemp)"
           jq -n '{make_latest: "true"}' > "$latest_payload"
 
