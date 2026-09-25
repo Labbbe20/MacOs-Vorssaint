@@ -200,7 +200,7 @@ jobs:
             tag="$(printf '%s' "$release_json" | jq -r '.tag_name')"
             name="$(printf '%s' "$release_json" | jq -r '.name // .tag_name')"
             body="$(printf '%s' "$release_json" | jq -r '.body // ""')"
-            prerelease="$(printf '%s' "$release_json" | jq -r '.prerelease')"
+            target_prerelease=false
             target_commitish="$(git rev-list -n 1 "$tag")"
 
             release_payload="$workdir/release-${release_count}.json"
@@ -211,7 +211,7 @@ jobs:
               --arg target "$target_commitish" \
               --arg name "$name" \
               --arg body "$body" \
-              --argjson prerelease "$prerelease" \
+              --argjson prerelease "$target_prerelease" \
               '{
                 tag_name: $tag,
                 target_commitish: $target,
@@ -230,7 +230,7 @@ jobs:
 
               if [ "$target_release_name" = "$name" ] \
                 && [ "$target_release_body" = "$body" ] \
-                && [ "$target_release_prerelease" = "$prerelease" ]; then
+                && [ "$target_release_prerelease" = "$target_prerelease" ]; then
                 echo "Release $tag metadata is already current."
               else
                 run_with_retry gh api --method PATCH "repos/${TARGET_REPOSITORY}/releases/${target_release_id}" \
@@ -361,15 +361,21 @@ jobs:
           set -euo pipefail
 
           latest_tag="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          target_release_id=""
 
-          if [ -z "$latest_tag" ]; then
-            echo "Upstream has no latest release."
-            exit 0
+          if [ -n "$latest_tag" ]; then
+            target_release_id="$(gh api "repos/${TARGET_REPOSITORY}/releases/tags/${latest_tag}" --jq '.id' 2>/dev/null || true)"
           fi
 
-          target_release_id="$(gh api "repos/${TARGET_REPOSITORY}/releases/tags/${latest_tag}" --jq '.id' 2>/dev/null || true)"
           if [ -z "$target_release_id" ]; then
-            echo "Upstream latest release $latest_tag is not in the mirrored release window."
+            latest_tag="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases?per_page=1" --jq '.[0].tag_name' 2>/dev/null || true)"
+            if [ -n "$latest_tag" ]; then
+              target_release_id="$(gh api "repos/${TARGET_REPOSITORY}/releases/tags/${latest_tag}" --jq '.id' 2>/dev/null || true)"
+            fi
+          fi
+
+          if [ -z "$latest_tag" ] || [ -z "$target_release_id" ]; then
+            echo "No mirrored release is available to mark as latest."
             exit 0
           fi
 
