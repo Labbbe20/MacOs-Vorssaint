@@ -127,6 +127,22 @@ enum NotchPresentationProbe {
             if host.visibleFrame.size != geometry.peek {
                 failures.append("ordinary first presentation unexpectedly animated from a hidden panel")
             }
+            // Opening a page into an ordered-out panel sizes the island at once,
+            // as Reduce Motion does. The page waits for the surface beneath it
+            // instead of showing in the resting shape.
+            host.panel.orderOut(nil)
+            host.present(size: geometry.expanded, geometry: geometry, animated: true,
+                         transitionContent: .reveal, usesGlass: true)
+            let fadeStarted = host.contentProbeAnimating
+            host.panel.orderFrontRegardless()
+            advance(0.02)
+            if !fadeStarted || host.contentProbeOpacity > 0.01 {
+                failures.append("a page opened at once showed before the island reached its size")
+            }
+            advance(0.3)
+            if host.visibleFrame.size != geometry.expanded || host.contentProbeOpacity != 1 {
+                failures.append("a page opened at once did not appear once the island reached its size")
+            }
             host.hide(animated: true)
             host.hide(animated: false)
             if host.panel.isVisible { failures.append("nonanimated withdrawal did not hide the island immediately") }
@@ -208,7 +224,8 @@ enum NotchPresentationProbe {
                                      cameraWidth: screen.safeAreaInsets.top > 0 ? 210 : 0)
         let host = NotchWindowHost(content: AnyView(Color.clear), geometry: geometry, size: geometry.collapsed, background: surface,
                                   quickAccess: { AnyView(NotchQuickAccessView(service: .shared, motion: $0)) })
-        host.panel.alphaValue = 0
+        let restingAlpha: CGFloat = 0.01
+        host.panel.alphaValue = restingAlpha
         host.panel.ignoresMouseEvents = true
         host.panel.orderFrontRegardless()
         host.present(size: geometry.expanded, geometry: geometry, animated: false, quickAccess: .initial, usesGlass: true)
@@ -227,7 +244,11 @@ enum NotchPresentationProbe {
         witnessContent.wantsLayer = true
         witness.contentView = witnessContent
         witness.orderFrontRegardless()
+        let idleProbeCount = host.missionControlFrameProbeCount
         advance(0.5)
+        if host.missionControlFrameProbeCount != idleProbeCount {
+            failures.append("the island probed window frames on the desktop")
+        }
         func witnessLags() -> Bool {
             let side: CGFloat = witness.frame.width > 2 ? 2 : 40
             witness.setFrame(CGRect(x: screen.frame.minX, y: screen.frame.minY, width: side, height: side), display: false)
@@ -236,6 +257,7 @@ enum NotchPresentationProbe {
             return serverSize(of: witness).map { abs($0.width - side) > 0.5 } ?? false
         }
         if witnessLags() { failures.append("the desktop already animated a plain frame change") }
+        if host.isConcealedForMissionControl { failures.append("the island hid on the desktop") }
         toggleMissionControl()
         advance(2)
         guard witnessLags() else {
@@ -243,6 +265,10 @@ enum NotchPresentationProbe {
             witness.orderOut(nil)
             host.close()
             exit(1)
+        }
+        if !host.isConcealedForMissionControl || host.panel.alphaValue != 0
+            || host.containsHover(CGPoint(x: screen.frame.midX, y: screen.frame.maxY)) {
+            failures.append("the island still covers desktop names or accepts hover in Mission Control")
         }
         for (size, access) in [(geometry.collapsed, nil), (geometry.expanded, NotchQuickAccessConfiguration.initial),
                                (geometry.collapsed, nil)] {
@@ -282,6 +308,19 @@ enum NotchPresentationProbe {
         }
         toggleMissionControl()
         advance(1.5)
+        if host.isConcealedForMissionControl || abs(host.panel.alphaValue - restingAlpha) > 0.001
+            || !host.panel.ignoresMouseEvents {
+            failures.append("the island did not restore its prior visibility and input policy after Mission Control")
+        }
+        toggleMissionControl()
+        advance(2)
+        if !host.isConcealedForMissionControl { failures.append("the second Mission Control entry did not conceal the island") }
+        host.panel.orderOut(nil)
+        toggleMissionControl()
+        advance(1.5)
+        if host.isConcealedForMissionControl || abs(host.panel.alphaValue - restingAlpha) > 0.001 {
+            failures.append("an ordered-out island did not restore without another hover event")
+        }
         witness.orderOut(nil)
         host.close()
         print("NOTCH MISSION CONTROL PROBE \(failures.isEmpty ? "OK" : "FAILED")")
@@ -448,6 +487,26 @@ enum NotchPresentationProbe {
             failures.append("settled content remained hidden")
         }
         if completedActions != 1 { failures.append("transition completion did not run exactly once") }
+        // A leaving notice stays drawn while the shape closes around it, and
+        // is gone before the resting content returns.
+        host.present(size: geometry.collapsed, geometry: geometry, animated: true, transitionContent: .depart)
+        if !reduceMotion, !host.departsContent { failures.append("departing notice has no departure transition") }
+        advance(0.04)
+        if !reduceMotion, host.contentProbeOpacity < 0.3 {
+            failures.append("departing notice vanished before the shape closed around it")
+        }
+        advance(NotchMotion.departureHidden - 0.04)
+        if !reduceMotion, host.contentProbeOpacity > 0.01 {
+            failures.append("departing notice was still visible when the view swapped it out")
+        }
+        advance(0.3)
+        if !reduceMotion, host.contentProbeOpacity > 0.01 {
+            failures.append("departing notice returned before the view swapped it out")
+        }
+        host.finishDeparture()
+        advance(0.52)
+        if host.contentProbeOpacity != 1 { failures.append("content stayed hidden after a notice departed") }
+        host.present(size: geometry.notice, geometry: geometry, animated: false)
         // A compact download can exceed 64pt. Its material is a presentation
         // decision, independent of that height and of the animation envelope.
         let crowded = NotchGeometry(screen: screen.frame, safeAreaTop: 38, cameraWidth: 210,

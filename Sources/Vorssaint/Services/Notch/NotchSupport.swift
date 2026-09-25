@@ -329,13 +329,14 @@ struct NotchHoverState {
 }
 
 enum NotchCompactActivity: Equatable {
-    case timer, downloads, agents, music
+    case timer, downloads, agents, calendar, music
 
     var module: NotchModule {
         switch self {
         case .timer: return .timer
         case .downloads: return .downloads
         case .agents: return .agents
+        case .calendar: return .calendar
         case .music: return .music
         }
     }
@@ -599,10 +600,11 @@ enum NotchQuickAccessLayout {
 }
 
 enum NotchEvent: String, CaseIterable {
-    case volume, brightness, battery, clipboard, capture, systemNotification, keyboardLight, timer, accessory, download, agents
+    case volume, brightness, battery, clipboard, capture, systemNotification, keyboardLight, timer, accessory, download, agents, track
 
     var preferenceKey: String {
         switch self {
+        case .track: return DefaultsKey.notchTrackChange
         case .timer: return DefaultsKey.notchTimerEnabled
         case .accessory: return DefaultsKey.notchAccessoriesEnabled
         case .download: return DefaultsKey.notchDownloadsEnabled
@@ -622,14 +624,14 @@ enum NotchEvent: String, CaseIterable {
         case .volume, .brightness, .keyboardLight: return 3
         case .capture, .timer: return 2
         case .battery, .systemNotification, .accessory, .agents: return 1
-        case .clipboard, .download: return 0
+        case .clipboard, .download, .track: return 0
         }
     }
 
     var duration: TimeInterval {
         switch self {
         case .volume, .brightness, .keyboardLight: return 1.6
-        case .systemNotification: return 3
+        case .systemNotification, .track: return 3
         case .timer, .download: return 6
         case .agents: return 5
         case .battery, .accessory: return 4
@@ -668,13 +670,46 @@ enum NotchSupport {
         return modules[(index + (backwards ? modules.count - 1 : 1)) % modules.count]
     }
 
+    /// The arrow keys step through a searched list without wrapping; the
+    /// first press, or one after the highlighted row left the list, lands on
+    /// the top result.
+    static func steppedItem<ID: Equatable>(from current: ID?, in ids: [ID], backwards: Bool) -> ID? {
+        guard !ids.isEmpty else { return nil }
+        guard let current, let index = ids.firstIndex(of: current) else { return ids.first }
+        return ids[min(max(index + (backwards ? -1 : 1), 0), ids.count - 1)]
+    }
+
+    /// The row a search leaves highlighted: the current one while it is still
+    /// listed, otherwise the top result of a typed search, so Return pastes it
+    /// like the history window does. An empty search waits for the first arrow.
+    static func searchHighlight<ID: Equatable>(keeping current: ID?, in ids: [ID], query: String) -> ID? {
+        if let current, ids.contains(current) { return current }
+        return query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : ids.first
+    }
+
     /// A working agent outranks the music it plays over: its turn ends on its
     /// own, while music is there all day.
-    static func compactActivity(timer: Bool, downloads: Bool, agents: Bool = false, music: Bool) -> NotchCompactActivity? {
+    static func compactActivity(timer: Bool, downloads: Bool, agents: Bool = false,
+                                calendar: Bool = false, music: Bool) -> NotchCompactActivity? {
         if timer { return .timer }
         if downloads { return .downloads }
         if agents { return .agents }
+        if calendar { return .calendar }
         return music ? .music : nil
+    }
+
+    /// The timer's orange clock says what it is on its own, so the wing its
+    /// mark would take shows the next activity instead, in the same order.
+    /// A download takes it in any state, as before; music and agents only
+    /// while the timer runs, since a paused or finished timer needs its mark:
+    /// above a minute its clock alone reads the same as a running one.
+    /// Every other strip fills both wings with its own content.
+    static func compactCompanion(timer: Bool, running: Bool, downloads: Bool, agents: Bool,
+                                 music: Bool) -> NotchCompactActivity? {
+        guard timer else { return nil }
+        if downloads { return .downloads }
+        guard running else { return nil }
+        return compactActivity(timer: false, downloads: false, agents: agents, music: music)
     }
 
     static func gestureIsOverHeader(expanded: Bool, peeking: Bool, fromTop: CGFloat, safeTop: CGFloat,
@@ -810,6 +845,7 @@ enum NotchSupport {
         case .capture:
             return AppFeature.screenshot.isAvailable(in: defaults)
                 && modules(in: defaults).contains(.captures)
+        case .track: return modules(in: defaults).contains(.music)
         }
     }
 
@@ -887,7 +923,15 @@ struct NotchMenuBarMeasurements {
         let scale: CGFloat
         let height: CGFloat
     }
+    private static let range: ClosedRange<CGFloat> = 16...64
     private var readings: [UInt32: Reading] = [:]
+
+    /// A bar that hides until the pointer reveals it reserves nothing at the
+    /// top of the visible frame, and neither does a display without a bar.
+    static func showsBar(frame: CGRect, visibleTop: CGFloat) -> Bool {
+        let gap = frame.maxY - visibleTop
+        return gap.isFinite && range.contains(gap)
+    }
 
     mutating func retainDisplays(_ ids: [UInt32]) {
         readings = readings.filter { ids.contains($0.key) }
@@ -895,13 +939,13 @@ struct NotchMenuBarMeasurements {
 
     mutating func height(displayID: UInt32, frame: CGRect, visibleTop: CGFloat,
                          scale: CGFloat, statusBarThickness: CGFloat) -> CGFloat {
-        let range: ClosedRange<CGFloat> = 16...64
+        let range = Self.range
         let gap = frame.maxY - visibleTop
         let canRemember = displayID != 0 && scale.isFinite && scale > 0
         if let previous = readings[displayID], previous.size != frame.size || previous.scale != scale {
             readings[displayID] = nil
         }
-        if gap.isFinite, range.contains(gap) {
+        if Self.showsBar(frame: frame, visibleTop: visibleTop) {
             if canRemember { readings[displayID] = Reading(size: frame.size, scale: scale, height: gap) }
             return gap
         }
@@ -1051,6 +1095,33 @@ struct NotchGeometry: Equatable {
         // Menu changes, including full-screen transitions, must not push the
         // timer below the camera. Its expanded view remains available by click.
         compact.allowsActivityFooter = false
+        return compact
+    }
+    /// A download keeps its arrow and its progress beside the camera, like
+    /// the timer. The wide strip left a band of black between a clipped name
+    /// and the progress; the page and the finished notice name the file.
+    var compactDownloadGeometry: NotchGeometry {
+        var compact = self
+        let room = compactSideRoom ?? 0
+        let wing: CGFloat = 56
+        compact.compactSideRoom = room.isFinite && room >= 44 ? min(wing, room) : 0
+        compact.minimumCompactWidth = cameraWidth + wing * 2
+        return compact
+    }
+    static let calendarWingRange: ClosedRange<CGFloat> = 72...120
+    /// Give the title useful space beside the camera, as wide as the title or
+    /// the clock needs, so neither wing ends in a band of empty black. When
+    /// menus leave less than a readable wing, a physical notch uses one row
+    /// below the camera.
+    var compactCalendarGeometry: NotchGeometry { compactCalendarGeometry(wing: Self.calendarWingRange.upperBound) }
+    func compactCalendarGeometry(wing: CGFloat) -> NotchGeometry {
+        var compact = self
+        let room = compactSideRoom ?? 0
+        let range = Self.calendarWingRange
+        let fitted = min(range.upperBound, max(range.lowerBound, wing.isFinite ? wing.rounded(.up) : 0))
+        compact.compactSideRoom = room.isFinite && room >= range.lowerBound ? min(fitted, room) : 0
+        compact.minimumCompactWidth = cameraWidth + fitted * 2
+        compact.minimumWing = 72
         return compact
     }
     /// A working agent keeps its mark and one reading beside the camera,
@@ -1290,6 +1361,10 @@ struct NotchSessionState {
 /// Reserve enough backing space for both ends. The visible silhouette moves
 /// inside it; the native window only shrinks after the transition finishes.
 enum NotchMotion {
+    /// Departing content has faded out by 0.16 s; the view then swaps it for
+    /// the next content, which fades in once the swap is on screen.
+    static let departureHidden: TimeInterval = 0.2
+
     static func duration(from: CGSize, to: CGSize) -> TimeInterval {
         let grows = to.height > from.height || (to.height == from.height && to.width > from.width)
         return grows ? 0.34 : 0.26
@@ -1300,11 +1375,12 @@ enum NotchMotion {
     }
 }
 
-/// How open the glass lip is at each height of a resize. Glass closing into
-/// a black strip darkens over the last stretch, so it arrives already black
-/// and the material swap at rest changes nothing on screen; glass leaving a
-/// black strip opens up over the first stretch. A resize that interrupts
-/// another starts from the openness already on screen.
+/// How open the glass lip is at each height of a resize. The page leaves the
+/// island as soon as it starts closing, so glass closing into a black strip
+/// shuts at once: open, the empty glass showed the windows beneath it through
+/// the whole collapse. Glass leaving a black strip stays shut until the last
+/// stretch, where the page fades in over it. An opening that interrupts a
+/// close starts from the openness already on screen.
 struct NotchGlassFade: Equatable {
     /// Where the lip is shut, and the height over which it opens from there.
     var solidHeight: CGFloat = 0
@@ -1325,12 +1401,14 @@ struct NotchGlassFade: Equatable {
         let travel = abs(end - start)
         if endsInGlass {
             guard end > start, current < 1 else { return .open }
-            if current == 0 { return NotchGlassFade(solidHeight: start, range: max(1, min(stretch, travel))) }
+            if current == 0 {
+                let range = min(stretch, travel)
+                return NotchGlassFade(solidHeight: end - range, range: max(1, range))
+            }
             let range = travel / (1 - current)
             return NotchGlassFade(solidHeight: start - current * range, range: max(1, range))
         }
-        let range = current >= 1 ? min(stretch, travel) : travel / max(current, 0.01)
-        return NotchGlassFade(solidHeight: end, range: max(1, range))
+        return NotchGlassFade(solidHeight: max(start, end), range: 1)
     }
 }
 
