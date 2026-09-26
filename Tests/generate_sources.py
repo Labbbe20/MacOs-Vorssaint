@@ -361,6 +361,7 @@ def main():
           + declaration(playback_adapter, "    static func validatedTarget(")
           + declaration(playback_adapter, "    static func readInfo(")
           + declaration(playback_adapter, "    static func supportedCommands(")
+          + declaration(playback_adapter, "    private static func currentPlayerPID(").replace("private static", "static", 1)
           + declaration(playback_adapter, "    static func send(")
           + declaration(playback_adapter, "    private static func makeTarget(").replace("private static", "static", 1)
           + declaration(adapter_entry, "private func sendPlaybackCommand(").replace("private func", "static func", 1)
@@ -482,6 +483,8 @@ def main():
                                                 "playback?.isPlaying == true, in: ReviewDefaults.current)")
     music_visibility = music_visibility.replace("captureControls: captureControls != nil)",
                                                 "captureControls: captureControls != nil, in: ReviewDefaults.current)")
+    music_visibility = music_visibility.replace(
+        "NotchDownloadService.shared.items.first { $0.active && !$0.completed }?.name", "downloadName")
     music_visibility = music_visibility.replace("AppFeature.monitorDisk.isAvailable",
                                                 "AppFeature.monitorDisk.isAvailable(in: ReviewDefaults.current)")
     music_visibility = music_visibility.replace("AppFeature.fanControl.isAvailable",
@@ -508,7 +511,7 @@ def main():
           + "".join(declaration(notch, prefix).replace("    private ", "    ", 1) for prefix in [
               "    private func handleScroll(", "    private func handleSectionScroll("])
           + "}\n}\n")
-    write("NotchPresentationRefresh.swift", "import Foundation\nimport Combine\n"
+    write("NotchPresentationRefresh.swift", "import AppKit\nimport Foundation\nimport Combine\n"
           + "extension NotchPresentationRefreshContract {\nfinal class Service: State {\n"
           + "func hover(_ entered: Bool) {\nlet wasInside = inside\n"
           + "inside = windowHost?.containsHover(NSEvent.mouseLocation) == true\n"
@@ -524,6 +527,8 @@ def main():
           + declaration(notch, "    var showsSystemFeedback:")
           + declaration(notch, "    var usesGlassSurface:")
           + declaration(notch, "    var expandedGeometry:").replace("var expandedGeometry", "override var expandedGeometry", 1)
+          + declaration(notch, "    private func compactMusicTransition(").replace("private func", "func", 1)
+          + declaration(notch, "    private func rememberPresentedMusic(").replace("private func", "func", 1)
           + declaration(notch, "    func refreshPresentation(")
           + declaration(notch, "    private func applyMenuSpace(").replace("private func", "func", 1)
           + declaration(notch, "    func updateCaptureHeight(")
@@ -853,6 +858,7 @@ def main():
           + declaration(music, "    private struct AutomationAction {").replace("private struct", "struct", 1)
           + declaration(music, "    var canSeek:")
           + declaration(music, "    func canPerform(")
+          + declaration(music, "    func lacksTrackSkipping(")
           + declaration(music, "    func requestAutomationAccess()")
           + declaration(music, "    private func beginAutomation(").replace("private func", "func", 1)
           + declaration(music, "    private func receiveValidation(").replace("private func", "func", 1)
@@ -895,6 +901,7 @@ def main():
     keep_awake = "Sources/Vorssaint/Services/KeepAwakeManager.swift"
     keep_awake_methods = [
         "    func refreshPasswordlessStatus(",
+        "    func resumeAfterSystemTeardown(",
         "    private func activate(end:",
         "    func deactivate(reason:",
         "    private func applyClamshellPreference(",
@@ -970,11 +977,14 @@ def main():
     self_uninstall = "Sources/Vorssaint/Services/SelfUninstall.swift"
     write("SelfUninstallRemoval.swift", "import Foundation\n\nextension SelfUninstallContract {\nenum Host {\n"
           + "static let bundleID = \"test\"\n"
-          + "static func suspendInputInterceptors() -> Bool { events.append(\"suspend\"); return true }\n"
-          + "static func restoreSleepBeforeRemoval() -> Bool { events.append(\"sleep\"); return true }\n"
-          + "@discardableResult static func detachFromSystem() -> Bool { events.append(\"detach\"); return true }\n"
+          + "static func suspendInputInterceptors() -> Bool { events.append(\"suspend\"); return suspensionAllowed }\n"
+          + "static func restoreSleepBeforeRemoval() -> Bool { events.append(\"sleep\"); return sleepRestoreAllowed }\n"
+          + "static func detachFanControl() -> Bool { events.append(\"fan\"); return detachAllowed }\n"
+          + "static func detachLoginItem() { events.append(\"login\") }\n"
           + "static func removePreferences() { events.append(\"preferences\") }\n"
           + "static func trashOwnBundleAndQuit() { events.append(\"trash\") }\n"
+          + declaration(self_uninstall, "    private static func detachFromSystem()")
+            .replace("private static", "static", 1)
           + declaration(self_uninstall, "    static func clearPermissions(")
           + declaration(self_uninstall, "    static func uninstallCompletely(")
           + declaration(self_uninstall, "    private static func removeSudoersRuleIfPresent(")
