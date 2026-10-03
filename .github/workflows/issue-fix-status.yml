@@ -408,6 +408,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          issues_enabled=$(gh api "repos/$GH_REPO" --jq '.has_issues')
+          if [ "$issues_enabled" != "true" ]; then
+            echo "Issues are disabled for $GH_REPO; nothing to close."
+            exit 0
+          fi
+
           cutoff=$(date -u -d "$CONFIRM_DAYS days ago" +%Y-%m-%dT%H:%M:%SZ)
           echo "closing checks asked before $cutoff"
 
