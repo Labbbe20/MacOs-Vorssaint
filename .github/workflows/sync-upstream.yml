@@ -72,7 +72,13 @@ jobs:
             source_changed=false
           fi
 
-          git merge --no-edit "refs/remotes/upstream/${UPSTREAM_BRANCH}"
+          if git merge --no-edit "refs/remotes/upstream/${UPSTREAM_BRANCH}"; then
+            echo "Upstream source merged successfully."
+          else
+            git merge --abort
+            source_changed=false
+            echo "::warning::Upstream source sync was skipped because the merge has conflicts. The fork branch was left unchanged; resolve the conflicts manually before the next source sync."
+          fi
 
           mkdir -p "$(dirname "$KEEPALIVE_MARKER")"
           now_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
