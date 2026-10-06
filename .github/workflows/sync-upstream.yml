@@ -134,7 +134,14 @@ jobs:
             [ -n "$tag_ref" ] || continue
             tag_count=$((tag_count + 1))
             git fetch --force upstream "${tag_ref}:${tag_ref}"
-            git push --force origin "${tag_ref}:${tag_ref}"
+            if ! push_output="$(git push --force origin "${tag_ref}:${tag_ref}" 2>&1)"; then
+              if printf '%s' "$push_output" | grep -Eiq "without .workflows. permission"; then
+                echo "::warning::Skipped $tag_ref because GitHub's token cannot update workflow files; release mirroring will continue."
+              else
+                printf '%s' "$push_output" >&2
+                exit 1
+              fi
+            fi
           done < <(git ls-remote --tags --refs upstream | awk '{print $2}')
 
           echo "Synced $tag_count upstream tag(s)."
