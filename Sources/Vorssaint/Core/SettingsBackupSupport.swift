@@ -99,7 +99,13 @@ enum SettingsBackupSupport {
     /// out by construction (they are not preference keys), listed here only
     /// when they would otherwise slip in through the registered set.
     static let machineStateKeys: Set<String> = [
+        DefaultsKey.displaysSwitchedOff,
+        DefaultsKey.displaysSwitchedOffFingerprints,
         DefaultsKey.dockPreviewRestoreAutohide,
+        // The Space arrangement setting to put back, and a Dock restart still
+        // owed, belong to this Mac's Dock.
+        DefaultsKey.spacesOrderRestore,
+        DefaultsKey.spacesOrderRestartPending,
         // A Bluetooth restore owed by one sleeping Mac means nothing on another.
         DefaultsKey.bluetoothSleepRestorePending,
         DefaultsKey.micMuteActive,
@@ -134,6 +140,7 @@ enum SettingsBackupSupport {
         // What one person runs most is habit, not configuration.
         DefaultsKey.commandBarUsage,
         DefaultsKey.commandBarQueryHabits,
+        DefaultsKey.commandBarQueryHabitKey,
         // A chosen folder is authority on one Mac, not portable configuration.
         // Restoring it elsewhere could search a different volume or trigger a
         // protected-folder prompt without a fresh choice.
@@ -141,6 +148,9 @@ enum SettingsBackupSupport {
         DefaultsKey.notchDownloadsFolderBookmark,
         DefaultsKey.wallpaperOwnBookmarks,
         DefaultsKey.wallpaperExcludedOwnPaths,
+        DefaultsKey.recorderSaveFolder,
+        DefaultsKey.screenshotSaveFolder,
+        DefaultsKey.musicBlockReplacementPath,
         // A local watermark file is authority on this Mac, not portable data.
         DefaultsKey.mediaImageWatermarkLogoPath,
         DefaultsKey.simulateUpdate,
@@ -149,6 +159,7 @@ enum SettingsBackupSupport {
         DefaultsKey.unifiedScreenCaptureShortcutMigrated,
         DefaultsKey.restoredScreenCaptureShortcutsMigrated,
         DefaultsKey.orphanedCaptureShortcutMigrated,
+        DefaultsKey.notchAgentsOptInMigrated,
         DefaultsKey.settingsWindowWidth,
         DefaultsKey.settingsWindowHeight,
         DefaultsKey.clipboardHistoryWindowWidth,

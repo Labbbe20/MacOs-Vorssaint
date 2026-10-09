@@ -66,8 +66,13 @@ enum NotchAgentSupport {
     static let idleTurn: TimeInterval = 10 * 60
 
     static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
-        NotchSupport.isEnabled(in: defaults) && AppFeature.notchAgents.isAvailable(in: defaults)
-            && defaults.bool(forKey: DefaultsKey.notchAgentsEnabled)
+        NotchSupport.isEnabled(in: defaults) && sectionShows(in: defaults)
+    }
+
+    /// The AI section is installed, switched on and shown, whether or not the
+    /// island itself is.
+    static func sectionShows(in defaults: UserDefaults = .standard) -> Bool {
+        AppFeature.notchAgents.isAvailable(in: defaults) && defaults.bool(forKey: DefaultsKey.notchAgentsEnabled)
             && NotchSupport.modules(in: defaults).contains(.agents)
     }
 
@@ -82,6 +87,7 @@ enum NotchAgentSupport {
         case .claude: return DefaultsKey.notchAgentsClaude
         case .codex: return DefaultsKey.notchAgentsCodex
         case .opencode: return DefaultsKey.notchAgentsOpenCode
+        case .copilot: return DefaultsKey.notchAgentsCopilot
         }
     }
 
@@ -231,7 +237,7 @@ enum NotchAgentSupport {
     static func tiles(cards: [NotchAgentCard], providers: [AgentProvider]) -> [NotchAgentTile] {
         cards.flatMap { card -> [NotchAgentTile] in
             switch card {
-            case .limits: return providers.map { NotchAgentTile(card: .limits, provider: $0) }
+            case .limits: return providers.filter(\.reportsLimits).map { NotchAgentTile(card: .limits, provider: $0) }
             // Banked resets belong to a Codex account.
             case .resets: return providers.contains(.codex) ? [NotchAgentTile(card: .resets, provider: .codex)] : []
             default: return [NotchAgentTile(card: card, provider: nil)]

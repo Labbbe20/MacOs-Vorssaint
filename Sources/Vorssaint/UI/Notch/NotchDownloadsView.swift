@@ -170,11 +170,22 @@ struct NotchDownloadsView: View {
     private func downloadCard(_ item: NotchDownloadItem) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: item.completed ? "checkmark.circle.fill" : "arrow.down.circle")
-                    .foregroundStyle(item.completed ? .green : .white)
-                Text(item.name).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                let fileLabel = HStack(spacing: 8) {
+                    Image(systemName: item.completed ? "checkmark.circle.fill" : "arrow.down.circle")
+                        .foregroundStyle(item.completed ? .green : .white)
+                        .accessibilityHidden(true)
+                    Text(item.name).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if item.completed {
+                    Button {
+                        if !NSWorkspace.shared.open(item.url) { NSSound.beep() }
+                    } label: {
+                        fileLabel.frame(minHeight: 28).contentShape(Rectangle())
+                    }
+                    .buttonStyle(NotchButtonStyle(cornerRadius: 6, lifts: false))
+                    .help(l10n.s.shelfActionOpen)
+                    .accessibilityHint(l10n.s.shelfActionOpen)
                     NotchIconButton(symbol: "folder", title: l10n.s.mediaOpenInFinder) {
                         NSWorkspace.shared.activateFileViewerSelecting([item.url])
                     }
@@ -183,9 +194,12 @@ struct NotchDownloadsView: View {
                             _ = ShelfService.shared.addFiles([item.url])
                         }
                     }
-                } else if let fraction = item.fraction {
-                    Text(fraction, format: .percent.precision(.fractionLength(0)))
-                        .font(.caption).monospacedDigit()
+                } else {
+                    fileLabel
+                    if let fraction = item.fraction {
+                        Text(fraction, format: .percent.precision(.fractionLength(0)))
+                            .font(.caption).monospacedDigit()
+                    }
                 }
             }
             if item.completed {
@@ -217,7 +231,8 @@ struct NotchDownloadsView: View {
 
 struct NotchDownloadStrip: View {
     @ObservedObject var service: NotchService
-    /// Another display's strip, when the island shows on every display.
+    /// Where the island draws it: its own strip as of the last update, or
+    /// another display's when the island shows on every display.
     var displayGeometry: NotchGeometry? = nil
     @ObservedObject private var downloads = NotchDownloadService.shared
     @ObservedObject private var l10n = L10n.shared
