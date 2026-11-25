@@ -387,7 +387,7 @@ def main():
               "    func markExported()", "    private func recordCleanState()", "    private func refreshDirtyState()",
               "    private func registerUndo(", "    private func trimHistory(",
               "    func applyCrop()", "    func undo()", "    func redo()",
-              "    private func restore(", "    private func refreshUndoFlags()",
+              "    private func restore(", "    var canUndo:", "    var canRedo:",
               "    func cancelCanvasExpansion()", "    func leaveCanvasExpansion()", "    func hitTest(",
               "    func beginDrag(", "    func continueDrag(", "    func endDrag(",
               "    private func finishDrawing(", "    private func updateDraft(",
@@ -1305,7 +1305,7 @@ def main():
           + "var outputDevices: [Device] = []\nvar currentOutputDeviceUID: String?\nvar switchedTo: [String] = []\n"
           + "func setUniversalOutputDeviceUID(_ uid: String) -> Bool { switchedTo.append(uid); return true }\n"
           + declaration(mixer, "    func switchToNextSoundOutput(") + "}\n}\n")
-    write("MixerOutputAdjustment.swift", "import AudioToolbox\nimport CoreAudio\nimport Foundation\n"
+    write("MixerOutputAdjustment.swift", "import AudioToolbox\nimport Combine\nimport CoreAudio\nimport Foundation\n"
           + "extension MixerOutputAdjustmentContract {\nfinal class Mixer {\n"
           + declaration(mixer, "    enum OutputKeyResult:")
           + declaration(mixer, "    private struct OutputKeyWrite {")
@@ -1323,7 +1323,7 @@ def main():
           + "static func quantizedOutputVolume(_ volume: Double, for device: AudioObjectID) -> Double? {\n"
           + "let value = Float32(volume); Hardware.queries.append(value)\n"
           + "if let quantizes = Hardware.quantizes { return quantizes(value).map(Double.init) }; return Double(value)\n}\n"
-          + "var systemOutputVolume: Double?\nvar systemOutputMuted: Bool?\n"
+          + "var systemOutputVolume: Double?\nvar systemOutputMuted: Bool?\n@Published var canToggleOutputMute = false\n"
           + declaration(mixer, "    @Published private(set) var currentOutputDeviceUID:")
             .replace("@Published private(set) var", "var", 1)
           + "private var volumeStepsNeedNativeKeys = false\n"
